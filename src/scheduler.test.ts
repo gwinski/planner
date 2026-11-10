@@ -120,3 +120,11 @@ describe("replanMissed", () => {
     expect(r.blocks).toBe(blocks);
   });
 });
+
+describe("skip ranges", () => {
+  it("does not run a recurring block inside its skip range", () => {
+    const b: Block = { ...classes, skip: [["2026-12-21", "2027-01-03"]] };
+    expect(blocksOn([b], "2026-12-22")).toHaveLength(0); // Tuesday in the break
+    expect(blocksOn([b], "2027-01-05")).toHaveLength(1); // Tuesday after it
+  });
+});

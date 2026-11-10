@@ -56,3 +56,28 @@ describe("parseNaturalLanguageTask", () => {
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 });
+
+describe("parser edge cases", () => {
+  it("does not read 'months' as minutes", () => {
+    const t = parseNaturalLanguageTask("Finish pump report in 2 months", "2026-11-10");
+    expect(t.totalMinutes).toBe(60);
+    expect(t.title).toBe("Finish pump report");
+  });
+  it("keeps total time and session length apart", () => {
+    const t = parseNaturalLanguageTask("Study MEG 417 for 120 minutes in 45 minute sessions by 2026-11-20", "2026-11-10");
+    expect(t.totalMinutes).toBe(120);
+    expect(t.sessionMinutes).toBe(45);
+    expect(t.deadline).toBe("2026-11-20");
+    expect(t.title).toBe("Study MEG 417");
+  });
+});
+
+describe("suggestions respect blackout dates", () => {
+  it("never suggests a day inside the break", () => {
+    const s = suggestTaskSlots(
+      { id: "x", title: "T", totalMinutes: 60, sessionMinutes: 60, deadline: "2027-01-08", deep: true },
+      [], { today: "2026-12-20", nowMinutes: 0, blackout: [["2026-12-21", "2027-01-03"]] }
+    );
+    expect(s.every((x) => x.date < "2026-12-21" || x.date > "2027-01-03")).toBe(true);
+  });
+});

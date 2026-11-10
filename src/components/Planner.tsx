@@ -137,7 +137,7 @@ export default function Planner() {
     if (r.placed.length) {
       const { error: e2 } = await supabase.from("blocks").insert(r.placed.map((b) => toInsert(b, "proj")));
       if (e2) return setMsg(e2.message);
-    }
+    } else await supabase.from("tasks").delete().eq("id", taskId);
     setMsg(r.missed
       ? `Created “${title}” and planned ${r.placed.length} of ${r.placed.length + r.missed} sessions before ${deadline}.`
       : `Created “${title}” and planned ${r.placed.length} session(s) before ${deadline}.`);
@@ -182,14 +182,14 @@ export default function Planner() {
             {CATS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
           </select>
           <button style={btn} onClick={plan}>Plan it</button>
-          <button style={field} onClick={suggestAI}>AI suggest</button>
+          <button style={field} onClick={suggestAI}>Suggest times</button>
           <button style={field} onClick={replan}>Re-plan missed</button>
         </div>
         {msg && <p style={{ margin: "8px 0 0" }}>{msg}</p>}
       </div>
 
       <div style={card}>
-        <b>AI chat planner</b>
+        <b>Quick add (type it in plain words)</b>
         <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
           <textarea
             value={chat}
@@ -203,7 +203,7 @@ export default function Planner() {
 
       {ai.length > 0 && (
         <div style={card}>
-          <b>AI suggestions</b>
+          <b>Suggested times</b>
           <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
             {ai.map((s, idx) => (
               <div key={`${s.date}-${s.start}`} style={{ fontSize: 13, color: "#e8eaf0" }}>

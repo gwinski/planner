@@ -92,7 +92,8 @@ export function blocksOn(blocks: Block[], date: string): Block[] {
         ? b.date === date
         : (b.weekdays ?? []).includes(wd) &&
           (!b.validFrom || date >= b.validFrom) &&
-          (!b.validUntil || date <= b.validUntil))
+          (!b.validUntil || date <= b.validUntil) &&
+          !(b.skip ?? []).some(([a, z]) => date >= a && date <= z))
   );
 }
 
