@@ -18,6 +18,17 @@ const task = (over: Partial<Task> = {}): Task => ({
 describe("splitSessions", () => {
   it("splits evenly", () => expect(splitSessions(240, 60)).toEqual([60, 60, 60, 60]));
   it("keeps the remainder as a shorter last session", () => expect(splitSessions(250, 60)).toEqual([60, 60, 60, 60, 10]));
+  it("ignores invalid session lengths", () => {
+    expect(splitSessions(240, 0)).toEqual([]);
+    expect(splitSessions(240, -30)).toEqual([]);
+    expect(splitSessions(-240, 60)).toEqual([]);
+  });
+
+  it("uses safe defaults for invalid scheduling config", () => {
+    const r = planTask(task({ totalMinutes: 240 }), [], { ...cfg, step: 0, dayStart: 1500, dayEnd: 1200, deadlineDayEnd: 0, buffer: -5 });
+    expect(r.missed).toBe(0);
+    expect(r.placed).toHaveLength(4);
+  });
 });
 
 describe("blocksOn", () => {

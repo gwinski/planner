@@ -1,8 +1,9 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { SEED } from "@/lib/seed";
+import { SEED, REVISION } from "@/lib/seed";
 import { fromRow, hm, type BlockRow } from "@/lib/blocks";
+import { suggestTaskSlots, parseNaturalLanguageTask, createPlannerId, type AiSuggestion } from "@/lib/aiPlanner";
 import { blocksOn, planTask, replanMissed, addDays, type Block, type PlanConfig } from "@/scheduler";
 
 const COLORS: Record<string, string> = { class: "#2f4f8f", read: "#c98a12", work: "#1f8a8a", proj: "#7a4fb5", vol: "#3d8b4f", life: "#8a8f98", task: "#c4476b" };
@@ -27,6 +28,8 @@ export default function Planner() {
   const [rows, setRows] = useState<BlockRow[]>([]);
   const [msg, setMsg] = useState("");
   const [sel, setSel] = useState<string | null>(null);
+  const [chat, setChat] = useState("");
+  const [ai, setAi] = useState<AiSuggestion[]>([]);
   const [f, setF] = useState({ title: "", hours: "4", deadline: "", session: "60", deep: true, category: "proj" });
 
   const load = useCallback(async () => {
@@ -38,6 +41,25 @@ export default function Planner() {
 
   const blocks = rows.map(fromRow);
   const byId = new Map(rows.map((r) => [r.id, r]));
+  const [ed, setEd] = useState({ title: "", s: "", e: "" });
+  useEffect(() => {
+    const r = sel ? byId.get(sel) : null;
+    if (r) setEd({ title: r.title, s: hm(r.start_min), e: hm(r.end_min) });
+  }, [sel]);
+  const mins = (s: string) => { const [a, b] = s.split(":"); return +a * 60 + +b; };
+
+  async function saveEdit(id: string) {
+    const s = mins(ed.s), e = mins(ed.e);
+    if (!(e > s)) return setMsg("End time must be after the start time.");
+    const { error } = await supabase.from("blocks").update({ title: ed.title, start_min: s, end_min: e }).eq("id", id);
+    setMsg(error ? error.message : "Saved.");
+    setSel(null); load();
+  }
+  async function addRevision() {
+    const { error } = await supabase.from("blocks").insert(REVISION);
+    setMsg(error ? error.message : "Exam-period revision blocks added (Jan 18 to Feb 12).");
+    load();
+  }
 
   async function seed() {
     const { error } = await supabase.from("blocks").insert(SEED);
@@ -78,6 +100,52 @@ export default function Planner() {
     load();
   }
 
+  function suggestAI() {
+    const c = cfg();
+    const title = f.title.trim() || "New task";
+    const deadline = f.deadline || addDays(c.today, 7);
+    const total = Math.round(parseFloat(f.hours) * 60) || 60;
+    const suggestions = suggestTaskSlots({
+      id: "ai-suggest",
+      title,
+      totalMinutes: total,
+      sessionMinutes: +f.session,
+      deadline,
+      deep: f.deep,
+    }, blocks, c);
+    setAi(suggestions);
+    if (!suggestions.length) setMsg("No good session remains in this window.");
+  }
+
+  async function chatTask() {
+    const input = chat.trim();
+    if (!input) return setMsg("Type a task request first.");
+    const parsed = parseNaturalLanguageTask(input, cfg().today);
+    const title = parsed.title || "New task";
+    const total = parsed.totalMinutes || 60;
+    const session = parsed.sessionMinutes || 60;
+    const deadline = parsed.deadline || addDays(cfg().today, 7);
+    const c = cfg();
+    const taskId = createPlannerId();
+    const task = { id: taskId, title, totalMinutes: total, sessionMinutes: session, deadline, deep: parsed.deep };
+    const r = planTask(task, blocks, c);
+    const { data: t, error } = await supabase.from("tasks")
+      .insert({ id: taskId, title, total_minutes: total, session_minutes: session, deadline, deep: task.deep, category: "proj" })
+      .select().single();
+    if (error || !t) return setMsg(error?.message ?? "Could not save the task.");
+
+    if (r.placed.length) {
+      const { error: e2 } = await supabase.from("blocks").insert(r.placed.map((b) => toInsert(b, "proj")));
+      if (e2) return setMsg(e2.message);
+    }
+    setMsg(r.missed
+      ? `Created “${title}” and planned ${r.placed.length} of ${r.placed.length + r.missed} sessions before ${deadline}.`
+      : `Created “${title}” and planned ${r.placed.length} session(s) before ${deadline}.`);
+    setChat("");
+    setAi(suggestTaskSlots(task, blocks, c));
+    load();
+  }
+
   async function toggleDone(id: string) {
     await supabase.from("blocks").update({ done: !byId.get(id)?.done }).eq("id", id);
     setSel(null); load();
@@ -114,15 +182,49 @@ export default function Planner() {
             {CATS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
           </select>
           <button style={btn} onClick={plan}>Plan it</button>
+          <button style={field} onClick={suggestAI}>AI suggest</button>
           <button style={field} onClick={replan}>Re-plan missed</button>
         </div>
         {msg && <p style={{ margin: "8px 0 0" }}>{msg}</p>}
       </div>
 
+      <div style={card}>
+        <b>AI chat planner</b>
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <textarea
+            value={chat}
+            onChange={(e) => setChat(e.target.value)}
+            placeholder="Plan 2 hours of thesis draft by Friday in 45 minute deep work sessions"
+            style={{ ...field, flex: 1, minWidth: 260, minHeight: 52, resize: "vertical" }}
+          />
+          <button style={btn} onClick={chatTask}>Create task</button>
+        </div>
+      </div>
+
+      {ai.length > 0 && (
+        <div style={card}>
+          <b>AI suggestions</b>
+          <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+            {ai.map((s, idx) => (
+              <div key={`${s.date}-${s.start}`} style={{ fontSize: 13, color: "#e8eaf0" }}>
+                <strong>{idx + 1}.</strong> {s.date} · {hm(s.start)}-{hm(s.end)} — {s.reason}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {rows.length > 0 && !rows.some((r) => r.title.startsWith("Revision")) && (
+        <div style={card}><button style={field} onClick={addRevision}>Add exam-period revision blocks (Jan 18 to Feb 12)</button></div>
+      )}
+
       {picked && (
         <div style={{ ...card, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span><b>{picked.title}</b> {hm(picked.start_min)}-{hm(picked.end_min)}</span>
-          <button style={btn} onClick={() => toggleDone(picked.id)}>{picked.done ? "Undo done" : "Mark done"}</button>
+          <input style={{ ...field, width: 200 }} value={ed.title} onChange={(e) => setEd({ ...ed, title: e.target.value })} />
+          <input style={field} type="time" value={ed.s} onChange={(e) => setEd({ ...ed, s: e.target.value })} />
+          <input style={field} type="time" value={ed.e} onChange={(e) => setEd({ ...ed, e: e.target.value })} />
+          <button style={btn} onClick={() => saveEdit(picked.id)}>Save</button>
+          <button style={field} onClick={() => toggleDone(picked.id)}>{picked.done ? "Undo done" : "Mark done"}</button>
           <button style={field} onClick={() => remove(picked.id)}>Delete{picked.weekdays ? " (all days)" : ""}</button>
           <button style={field} onClick={() => setSel(null)}>Close</button>
         </div>

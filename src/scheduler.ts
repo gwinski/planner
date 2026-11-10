@@ -10,6 +10,7 @@ export type Block = {
   date?: string; // one-off: "YYYY-MM-DD"
   validFrom?: string;
   validUntil?: string;
+  skip?: [string, string][];
   done?: boolean;
   // task-session fields
   taskId?: string;
@@ -52,17 +53,30 @@ export const addDays = (s: string, n: number) => {
 };
 export const weekday = (s: string) => toDate(s).getUTCDay();
 
+const positiveNumber = (value: number | undefined, fallback: number): number => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return value;
+};
+
 function resolve(cfg: PlanConfig) {
+  const dayStart = positiveNumber(cfg.dayStart, 420);
+  const dayEnd = positiveNumber(cfg.dayEnd, 1320);
+  const deadlineDayEnd = positiveNumber(cfg.deadlineDayEnd, 1080);
+  const buffer = typeof cfg.buffer === "number" && Number.isFinite(cfg.buffer) && cfg.buffer >= 0 ? cfg.buffer : 10;
+  const step = positiveNumber(cfg.step, 15);
+
   return {
     today: cfg.today,
-    nowMinutes: cfg.nowMinutes,
-    blackout: cfg.blackout ?? [],
-    dayStart: cfg.dayStart ?? 420,
-    dayEnd: cfg.dayEnd ?? 1320,
-    deadlineDayEnd: cfg.deadlineDayEnd ?? 1080,
-    buffer: cfg.buffer ?? 10,
-    step: cfg.step ?? 15,
-  };
+    nowMinutes: typeof cfg.nowMinutes === "number" && Number.isFinite(cfg.nowMinutes) ? cfg.nowMinutes : 0,
+    blackout: Array.isArray(cfg.blackout) ? cfg.blackout : [],
+    dayStart: dayStart < dayEnd ? dayStart : 420,
+    dayEnd: dayEnd > dayStart ? dayEnd : 1320,
+    deadlineDayEnd: deadlineDayEnd > dayStart ? deadlineDayEnd : 1080,
+    buffer,
+    step,
+  } as const;
 }
 
 const inBlackout = (d: string, ranges: [string, string][]) =>
@@ -83,10 +97,16 @@ export function blocksOn(blocks: Block[], date: string): Block[] {
 }
 
 export function splitSessions(totalMinutes: number, sessionMinutes: number): number[] {
+  const total = Math.round(totalMinutes);
+  const session = Math.round(sessionMinutes);
+  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(session) || session <= 0) {
+    return [];
+  }
+
   const out: number[] = [];
-  let rem = Math.round(totalMinutes);
+  let rem = total;
   while (rem > 0) {
-    const d = Math.min(sessionMinutes, rem);
+    const d = Math.min(session, rem);
     out.push(d);
     rem -= d;
   }

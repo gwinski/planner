@@ -37,3 +37,11 @@ export const SEED = [
   read("Pre-read: MEG 412", [4], "12:00", "12:30", "Before 2pm class"),
   read("Pre-read: MEG 416", [4], "19:00", "19:40", "For Friday"),
 ];
+
+const rev = (n: number, s: string, e: string) => ({
+  ...mk("read", `Revision block ${n}`, [1, 2, 3, 4, 5, 6], s, e, "Rename once your exam timetable is out"),
+  valid_from: "2027-01-18",
+  valid_until: "2027-02-12",
+});
+
+export const REVISION = [rev(1, "09:00", "12:00"), rev(2, "14:00", "17:00")];

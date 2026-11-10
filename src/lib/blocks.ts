@@ -1,4 +1,5 @@
-import type { Block } from "@/scheduler";
+import type { Block } from "../scheduler";
+import { BREAK } from "./ics";
 
 export type BlockRow = {
   id: string; title: string; category: string; start_min: number; end_min: number;
@@ -13,6 +14,7 @@ export const fromRow = (r: BlockRow): Block => ({
   validFrom: r.valid_from ?? undefined, validUntil: r.valid_until ?? undefined,
   done: r.done, taskId: r.task_id ?? undefined, part: r.part ?? undefined, of: r.of_parts ?? undefined,
   deadline: r.deadline ?? undefined, deep: r.deep ?? undefined,
+  skip: r.category === "class" || r.category === "read" ? [BREAK] : undefined,
 });
 
 export const hm = (n: number) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
